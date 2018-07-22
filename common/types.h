@@ -11,6 +11,8 @@
 #include <map>
 #include <unordered_map>
 
+#include <algorithm>
+
 #define MESSI_NAMESPACE_START namespace messi {
 #define MESSI_NAMESPACE_END }
 
@@ -22,6 +24,11 @@ typedef std::vector<std::string> Strings;
 typedef std::set<std::string> StringSet;
 typedef std::map<std::string, std::string> StringMap;
 typedef std::unordered_map<std::string, std::string> StringHashMap;
+
+typedef unsigned char BYTE;
+
+#define InfoLog(s) { std::cout << s << std::endl;}
+#define WarnLog(s) { std::cout << s << std::endl;}
 
 #endif // _MESSI_COMMON_TYPES_H
 
