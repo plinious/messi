@@ -1,134 +1,124 @@
-#ifndef MESSI_COMMON_NUM_RANGE_H
-#define MESSI_COMMON_NUM_RANGE_H
+#pragma once
 
-#include "types.h"
+#include <string>
+#include <memory>
 
-#include "IpAddr.h"
+namespace messi {
 
-// 抽象的区间
-// 用map实现.可以是0到多个小区间的集合
-// 元素可以是数字，ip，或其他实现了<操作符和==操作符的类,有复制语义
-
-MESSI_NAMESPACE_START
-
-enum RangeType {
-    CLOSE_CLOSE = 0, // 前闭后闭区间. [low, upper]
-    CLOSE_OPEN,      // 前闭后开区间. [low, upper)
-    OPEN_CLOSE,      // 前开后闭区间. (low, upper]
-    OPEN_OPEN,       // 前开后开区间. (low, upper)
-    TYPE_END
-};
-
+// Range is a class template that represent a set of ranges of numer of other
+// object that support compare. Range is copyable, and may be inited as a empty
+// object or from a map, or another Range object.
 template <class T>
-class BaseRange {
-    public:
-        typedef std::map<T, T> RangeMap;
-        typedef RangeMap::const_iterator ConstIter;
-        typedef RangeMap::iterator Iter;
+class Range {
+ public:
+  using ObjMap = std::map<T, T>;
 
-        explicit BaseRange(RangeType type = CLOSE_CLOSE) : type_(type) {}
-        virtual ~BaseRange() {}
-        BaseRange(const BaseRange &br) : type_(br.getRangeType()), rangeMap_(br.getMap()) {}
-        BaseRange &operator=(const BaseRange &br) {
-            if (&br == this) {
-                return *this;
-            }
-            this->type_ = br.getRangeType();
-            this->rangeMap_ = br.getMap();
-            return *this;
-        }
-        void clear() { rangeMap_.clear(); }
+  Range() = default;
+  explicit Range(const ObjMap &m) {
+    initByMap(m);
+  }
+  Range(const Range &br) : range_map_(br.getMap()) {}
+  Range &operator=(const Range &br) {
+    if (&br == this) {
+      return *this;
+    }
+    this->range_map_ = br.getMap();
+    return *this;
+  }
+  ~Range() = default;
 
-    public:
+  void setMap(const ObjMap &range_map) {
+    initByMap(range_map);
+  }
 
-        bool isEmpty() { return rangeMap_.empty(); }
+  const ObjMap &getMap() const {
+    return range_map_;
+  }
 
-        bool addRange(const T &e1, const T &e2) {
-            if (e1 > e2) {
-                T tmp = e1;
-                e1 = e2;
-                e2 = tmp;
-            }
-            if (e1 == e2 && type_ != CLOSE_CLOSE) { // e1 == e2只有在[]区间才有意义,其他区间直接返回
-                return true;
-            }
-            Iter it1 = getIter(e1);
-            if (it1 == rangeMap_.end()) { // 比现有区间都要大
-                rangeMap_[e2] = e1;
-                return true;
-            }
-            T lower_final = (it1->second < e1 ? it1->second : e1);
+ public:
+  bool empty() const {
+    return range_map_.empty();
+  }
 
-            // 检查,区间下限是取e1,还是跟现有区间合并
-            bool lowerNeedMerge = false;
-            if (e1 < it1->second) {
-                lowerNeedMerge = false;
-            }else if (e1 > it1->second) {
-                lowerNeedMerge = true;
-            }else {
-                lowerNeedMerge = !(type_ == OPEN_OPEN);
-            }
+  size_t size() const {
+    return range_map_.size();
+  }
 
-            Iter it2 = getIter(e2);
-            bool upperNeedMerge = false;
-            if (it2 != rangeMap_.end()) {
-                // 检查,区间上限是取e2,还是跟现有区间合并
-                if (e2 < it2->second) {
-                    upperNeedMerge = false;
-                }else if (e2 > it2->second) {
-                    upperNeedMerge = true;
-                }else {
-                    upperNeedMerge = (type_ == CLOSE_OPEN || type_ == CLOSE_CLOSE);
-                }
-            }
-            rangeMap_.erase(it1, it2);
-            if (upperNeedMerge) {
-                it2->second = lower_final;
-            }else {
-                rangeMap_[e2] = lower_final;
-            }
-            return true;
-        }
+  void clear() {
+    range_map_.clear();
+  }
 
-        bool isInRange(const T &element) {
-            ConstIter it = getIter(element);
-            if (it == rangeMap_.end() || element < it->second) {
-                return false;
-            }
-            if (element == it->second) {
-                if (type_ == OPEN_OPEN || type_ == OPEN_CLOSE) {
-                    return false;
-                }
-            }
-            return true;
-        }
+  void put(const T &e1, const T &e2) {
+    auto const *p1 = &e1;
+    auto const *p2 = &e2;
+    if (e1 > e2) {
+      p1 = &e2;
+      p2 = &e1;
+    }
 
-        void setRangeType(RangeType type) { type_ = type; }
-        RangeType getRangeType(RangeType type) { return type_; }
-        void setMap(const std::map<T, T> &rangeMap) {rangeMap_ = rangeMap; }
-        RangeMap &getMap() { return rangeMap_; }
+    auto it1 = getIter(*p1);
+    if (it1 == range_map_.end()) {
+      range_map_[*p2] = *p1;
+      return;
+    }
+    auto lower = it1->second;
+    if (*p1 <= lower) {
+      lower = *p1;
+    }
+    auto it2 = getIter(*p2);
+    range_map_.erase(it1, it2);
+    if (it2 == range_map_.end() || *p2 < it2->second) {
+      range_map_[*p2] = lower;
+    }else {
+      range_map_[it2->first] = lower;
+    }
+    return;
+  }
 
-    private:
-        ConstIter getIter(const T &e) {
-            if (type_ == CLOSE_CLOSE || type_ == OPEN_CLOSE) {
-                it = rangeMap_.lower_bound(e);
-            }else {
-                it = rangeMap_.upper_bound(e);
-            }
-            return it;
-        }
+  void remove(const T &e1, const T &e2) {
+    auto const *p1 = &e1;
+    auto const *p2 = &e2;
+    if (e1 > e2) {
+      p1 = &e2;
+      p2 = &e1;
+    }
+    auto it1 = getIter(*p1);
+    if (it1 == range_map_.end()) {
+      return;
+    }
+    auto it2 = getIter(*p2);
+    if (*p1 > it1->second) {
+      range_map_[*p1] = it1->second;
+    }
+    range_map_.erase(it1, it2);
+    if (it2 != range_map_.end() && *p2 > it2->second) {
+      range_map_[it2->first] = *p2;
+    }
+  }
 
-    private:
-        RangeType  type_;
-        RangeMap   rangeMap_;
+  bool isIn(const T &e) const {
+    auto it = getIter(e);
+    return it != range_map_.end() && e >= it->second;
+  }
+
+ private:
+  typename ObjMap::const_iterator getIter(const T &e) const {
+    return range_map_.lower_bound(e);
+  }
+
+  void initByMap(const ObjMap &obj_map) {
+    for (auto entry : obj_map) {
+      put(entry.first, entry.second);
+    }
+  }
+
+ private:
+  ObjMap range_map_;
 };
 
-typedef BaseRange<uint32_t> UIntRange;
-typedef BaseRange<int32_t>  IntRange;
-typedef BaseRange<uint64_t> ULongRange;
-typedef BaseRange<int64_t>  LongRange;
-typedef BaseRange<IpAddr>   IpRange;
+using UIntRange = Range<uint32_t>;
+using IntRange = Range<int32_t>;
+using ULongRange = Range<uint64_t>;
+using LongRange = Range<int64_t>;
 
-MESSI_NAMESPACE_END
-
-#endif // MESSI_COMMON_NUM_RANGE_H
+} // namespace messi
